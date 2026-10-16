@@ -2,20 +2,22 @@ name: Daily planning scrape
 
 on:
   schedule:
-    - cron: "17 6 * * *"   # 06:17 UTC daily
-  workflow_dispatch: {}     # manual "Run workflow" button
+    - cron: "17 11 * * *"   # 11:17 UTC (midday UK) - laptop is usually on
+  workflow_dispatch: {}      # manual "Run workflow" button
 
 jobs:
   scrape:
-    runs-on: ubuntu-latest
+    # Runs on Aston's Mac (UK IP) - councils block overseas cloud runners.
+    # If the Mac is off, the job queues and runs when it's next online (up to 24h).
+    runs-on: self-hosted
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install -r requirements.txt
-      - run: python src/main.py
+      - name: Set up Python env
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -q -r requirements.txt
+      - run: .venv/bin/python src/main.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
