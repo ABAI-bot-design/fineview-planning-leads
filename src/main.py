@@ -30,7 +30,9 @@ def save_contact(name, role, app, app_id):
                 "email": app.get("agent_email"),
                 "postal_address": app.get("agent_address"),
             })
-        row.update({k: v for k, v in enrich_business(app.get("agent_company") or name).items() if v})
+        # enrichment only fills gaps - details from the planning record win
+        row.update({k: v for k, v in enrich_business(app.get("agent_company") or name).items()
+                    if v and not row.get(k)})
         row["status"] = "new"
     contact = db.upsert("contacts", {k: v for k, v in row.items() if v is not None}, "name,category")
     db.upsert("application_contacts",

@@ -37,7 +37,7 @@ def companies_house(name: str) -> dict:
     out = {
         "company_number": c.get("company_number"),
         "company_status": c.get("company_status"),
-        "registered_address": c.get("address_snippet"),
+        "postal_address": c.get("address_snippet"),  # registered office
     }
     officers = requests.get(
         f"https://api.company-information.service.gov.uk/company/{c['company_number']}/officers",
