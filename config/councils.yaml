@@ -1,0 +1,28 @@
+# Councils within ~10 miles of Radlett (WD7).
+# All listed as Idox Public Access portals. Base URLs must be verified on first live run;
+# set enabled: false for any that fail until a custom adapter is written.
+councils:
+  - name: Hertsmere
+    base_url: https://www6.hertsmere.gov.uk/online-applications
+    enabled: true
+  - name: St Albans
+    base_url: https://planningapplications.stalbans.gov.uk/planning/search-applications
+    enabled: false   # TODO: confirm portal type
+  - name: Watford
+    base_url: https://pa.watford.gov.uk/publicaccess
+    enabled: true
+  - name: Three Rivers
+    base_url: https://www3.threerivers.gov.uk/online-applications
+    enabled: true
+  - name: Welwyn Hatfield
+    base_url: https://planning.welhat.gov.uk/online-applications
+    enabled: false   # TODO: confirm portal type
+  - name: Barnet
+    base_url: https://publicaccess.barnet.gov.uk/online-applications
+    enabled: true
+  - name: Harrow
+    base_url: https://planningsearch.harrow.gov.uk/planning/search-applications
+    enabled: false   # TODO: confirm portal type
+
+# How far back each run looks (runs daily, overlap avoids gaps)
+lookback_days: 3
