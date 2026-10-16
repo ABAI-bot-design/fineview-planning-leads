@@ -1,29 +1,31 @@
 """Scraper for Idox Public Access planning portals (used by most UK councils)."""
+import pathlib
 import re
+import tempfile
 import time
 from datetime import date, timedelta
 
+import certifi
 import requests
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 UA = "FineViewPlanningLeads/1.0 (+contact: fineviewwindows.co.uk)"
 DELAY = 2.0  # seconds between requests; be polite to council servers
 
 
-def ca_bundle_for(url: str) -> str:
-    """Some council servers omit the intermediate certificate. Fetch the missing
-    chain via AIA and add it to certifi's bundle, keeping full TLS verification."""
-    import pathlib
-    import tempfile
+CERTS_DIR = pathlib.Path(__file__).resolve().parent.parent / "certs"
+TIMEOUT = (15, 60)  # (connect, read) - council portals are slow, especially search results
 
-    import certifi
-    try:
-        from aia import AIASession
-        chain = AIASession().cadata_from_url(url)
-    except Exception:
-        return certifi.where()
-    path = pathlib.Path(tempfile.gettempdir()) / f"ca_{abs(hash(url))}.pem"
-    path.write_text(pathlib.Path(certifi.where()).read_text() + "\n" + chain)
+
+def ca_bundle() -> str:
+    """certifi's roots plus the intermediates in certs/. Some council servers
+    (e.g. Hertsmere) omit their intermediate certificate; shipping it here keeps
+    full TLS verification on. Only add public CA intermediates (see certs/README)."""
+    extra = "".join(p.read_text() for p in sorted(CERTS_DIR.glob("*.pem")))
+    path = pathlib.Path(tempfile.gettempdir()) / "fineview_ca_bundle.pem"
+    path.write_text(pathlib.Path(certifi.where()).read_text() + "\n" + extra)
     return str(path)
 
 
@@ -33,17 +35,22 @@ class IdoxScraper:
         self.base = base_url.rstrip("/")
         self.s = requests.Session()
         self.s.headers["User-Agent"] = UA
-        self.s.verify = ca_bundle_for(self.base)
+        self.s.verify = ca_bundle()
+        # Retry slow/flaky GETs a couple of times with a long backoff; never retry
+        # the search POST (it's not idempotent and hammering gets us throttled).
+        retry = Retry(total=2, backoff_factor=10, status_forcelist=(502, 503, 504),
+                      allowed_methods=frozenset({"GET"}))
+        self.s.mount("https://", HTTPAdapter(max_retries=retry))
 
     def _get(self, url, **kw):
         time.sleep(DELAY)
-        r = self.s.get(url, timeout=30, **kw)
+        r = self.s.get(url, timeout=TIMEOUT, **kw)
         r.raise_for_status()
         return BeautifulSoup(r.text, "html.parser")
 
     def _post(self, url, data):
         time.sleep(DELAY)
-        r = self.s.post(url, data=data, timeout=30)
+        r = self.s.post(url, data=data, timeout=TIMEOUT)
         r.raise_for_status()
         return BeautifulSoup(r.text, "html.parser")
 
