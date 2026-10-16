@@ -10,12 +10,30 @@ UA = "FineViewPlanningLeads/1.0 (+contact: fineviewwindows.co.uk)"
 DELAY = 2.0  # seconds between requests; be polite to council servers
 
 
+def ca_bundle_for(url: str) -> str:
+    """Some council servers omit the intermediate certificate. Fetch the missing
+    chain via AIA and add it to certifi's bundle, keeping full TLS verification."""
+    import pathlib
+    import tempfile
+
+    import certifi
+    try:
+        from aia import AIASession
+        chain = AIASession().cadata_from_url(url)
+    except Exception:
+        return certifi.where()
+    path = pathlib.Path(tempfile.gettempdir()) / f"ca_{abs(hash(url))}.pem"
+    path.write_text(pathlib.Path(certifi.where()).read_text() + "\n" + chain)
+    return str(path)
+
+
 class IdoxScraper:
     def __init__(self, council: str, base_url: str):
         self.council = council
         self.base = base_url.rstrip("/")
         self.s = requests.Session()
         self.s.headers["User-Agent"] = UA
+        self.s.verify = ca_bundle_for(self.base)
 
     def _get(self, url, **kw):
         time.sleep(DELAY)
