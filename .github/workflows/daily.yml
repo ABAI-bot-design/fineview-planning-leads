@@ -1,13 +1,13 @@
-name: Daily planning scrape
+name: Weekly planning scrape
 
 on:
   schedule:
-    - cron: "17 11 * * *"   # 11:17 UTC (midday UK) - laptop is usually on
+    - cron: "17 11 * * 1"   # Mondays 11:17 UTC (midday UK) - weekly, laptop is usually on
   workflow_dispatch:         # manual "Run workflow" button
     inputs:
       lookback_days:
-        description: "Days of decisions to fetch (3 = daily, 90 = backfill)"
-        default: "3"
+        description: "Days of decisions to fetch (8 = weekly, 90 = backfill)"
+        default: "8"
 
 jobs:
   scrape:
