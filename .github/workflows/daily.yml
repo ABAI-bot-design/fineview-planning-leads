@@ -14,7 +14,7 @@ jobs:
     # Runs on Aston's Mac (UK IP) - councils block overseas cloud runners.
     # If the Mac is off, the job queues and runs when it's next online (up to 24h).
     runs-on: self-hosted
-    timeout-minutes: 60
+    timeout-minutes: 480   # 90-day backfill can take hours
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python env
