@@ -16,7 +16,16 @@ CASES = [
     ("Certificate of lawful development for single storey rear extension", None),
     ("Installation of advertisement signage", None),
     ("Replacement front boundary fence", None),
+    ("Demolition of existing modern extension comprising the conservatory, kitchen and utility room.", None),
+    ("Demolition of existing garage, erection of single storey side infill extension", "Med"),
 ]
+
+
+def test_norm_company():
+    from enrich import norm_company
+    assert norm_company("Lisa Estates (Paragon) Ltd") == norm_company("LISA ESTATES (PARAGON) LIMITED")
+    assert norm_company("Beechcroft Developments Ltd") != norm_company("Lisa Estates (Paragon) Ltd")
+    assert norm_company("Not Available") != norm_company("Rock Andrew Ltd")
 
 
 def test_size_score():

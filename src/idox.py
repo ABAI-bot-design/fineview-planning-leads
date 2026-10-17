@@ -69,6 +69,14 @@ class IdoxScraper:
         if csrf:
             data["_csrf"] = csrf["value"]
         page = self._post(f"{self.base}/advancedSearchResults.do?action=firstPage", data)
+        # Idox shows 10 results per page by default; ask for 100 to cut requests
+        try:
+            page = self._post(f"{self.base}/pagedSearchResults.do",
+                              {"action": "page", "searchCriteria.page": "1",
+                               "searchCriteria.resultsPerPage": "100",
+                               **({"_csrf": csrf["value"]} if csrf else {})})
+        except requests.RequestException:
+            pass  # fall back to default paging
         seen = set()
         while True:
             for a in page.select("li.searchresult a[href*='keyVal=']"):
@@ -80,6 +88,32 @@ class IdoxScraper:
             if not nxt:
                 break
             page = self._get(requests.compat.urljoin(self.base + "/", nxt["href"]))
+
+    def agent_contact(self, key) -> dict:
+        """Email/phone from the AGENT section of the contacts tab only.
+        The tab also lists ward councillors / case officers - never take those."""
+        try:
+            soup = self._get(f"{self.base}/applicationDetails.do", params={"activeTab": "contacts", "keyVal": key})
+        except requests.HTTPError:
+            return {}
+        out = {}
+        for heading in soup.find_all(["h2", "h3", "h4", "th", "p", "strong"]):
+            if "agent" not in heading.get_text(" ", strip=True).lower():
+                continue
+            table = heading.find_next("table")
+            if not table:
+                continue
+            for row in table.select("tr"):
+                th, td = row.find("th"), row.find("td")
+                if not (th and td):
+                    continue
+                label, val = th.get_text(" ", strip=True).lower(), td.get_text(" ", strip=True)
+                if "mail" in label:
+                    out.setdefault("email", val)
+                elif "phone" in label or "tel" in label:
+                    out.setdefault("phone", val)
+            break
+        return out
 
     def _table(self, key, tab):
         soup = self._get(f"{self.base}/applicationDetails.do", params={"activeTab": tab, "keyVal": key})
@@ -93,10 +127,7 @@ class IdoxScraper:
     def application(self, key):
         summary = self._table(key, "summary")
         details = self._table(key, "details")
-        try:
-            contacts = self._table(key, "contacts")
-        except requests.HTTPError:
-            contacts = {}
+        contacts = self.agent_contact(key) if details.get("Agent Name") or details.get("Agent Company Name") else {}
         return {
             "council": self.council,
             "key_val": key,
@@ -111,7 +142,7 @@ class IdoxScraper:
             "agent_name": details.get("Agent Name"),
             "agent_company": details.get("Agent Company Name"),
             "agent_address": details.get("Agent Address"),
-            "agent_phone": contacts.get("Phone") or details.get("Agent Phone Number"),
-            "agent_email": contacts.get("Email"),
+            "agent_phone": contacts.get("phone") or details.get("Agent Phone Number"),
+            "agent_email": contacts.get("email"),
             "url": f"{self.base}/applicationDetails.do?activeTab=summary&keyVal={key}",
         }

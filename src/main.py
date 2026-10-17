@@ -1,6 +1,8 @@
 """Daily run: scrape -> filter -> categorise -> enrich (businesses) -> store."""
 import logging
+import os
 import pathlib
+import re
 import sys
 
 import yaml
@@ -17,20 +19,35 @@ log = logging.getLogger("planning")
 CFG = yaml.safe_load((pathlib.Path(__file__).parent.parent / "config/councils.yaml").read_text())
 
 
+PLACEHOLDER_NAMES = re.compile(r"^\s*(not available|n/?a|none|unknown|tbc|-+|\.)?\s*$", re.I)
+BLOCKED_EMAIL = re.compile(r"(\.gov\.uk|\.police\.uk|\.nhs\.uk)$", re.I)
+
+
+def clean_email(email):
+    if not email or "@" not in email or BLOCKED_EMAIL.search(email.strip()):
+        return None
+    return email.strip()
+
+
 def save_contact(name, role, app, app_id):
-    if not name:
+    if not name or PLACEHOLDER_NAMES.match(name):
         return
     category = classify_party(name, role)
     biz = is_business(category)
-    row = {"name": name, "category": category, "is_business": biz}
+    row = {"name": name.strip(), "category": category, "is_business": biz}
     if biz:
         if role == "agent":
             row.update({
                 "phone": app.get("agent_phone"),
-                "email": app.get("agent_email"),
+                "email": clean_email(app.get("agent_email")),
                 "postal_address": app.get("agent_address"),
             })
-        row.update({k: v for k, v in enrich_business(app.get("agent_company") or name).items() if v})
+        found = enrich_business(name)  # enrich THIS party, not the other one
+        if found.get("email"):
+            found["email"] = clean_email(found["email"])
+        for k, v in found.items():
+            if v and not row.get(k):
+                row[k] = v
         row["status"] = "new"
     contact = db.upsert("contacts", {k: v for k, v in row.items() if v is not None}, "name,category")
     db.upsert("application_contacts",
@@ -42,30 +59,38 @@ def save_contact(name, role, app, app_id):
 
 
 def run():
+    # LOOKBACK_DAYS env (set from the "Run workflow" form) overrides config, e.g. 90 for a backfill
+    days = int(os.environ.get("LOOKBACK_DAYS") or CFG["lookback_days"])
+    log.info("Looking back %d days", days)
     kept = 0
     for c in CFG["councils"]:
         if not c.get("enabled"):
             continue
         s = IdoxScraper(c["name"], c["base_url"])
         try:
-            keys = list(s.search_decided(CFG["lookback_days"]))
+            keys = list(s.search_decided(days))
         except Exception as e:  # one broken council shouldn't stop the run
             log.error("%s search failed: %s", c["name"], e)
             continue
-        log.info("%s: %d decided applications", c["name"], len(keys))
+        stats = {"decided": len(keys), "already_saved": 0, "not_approved": 0, "too_small": 0, "kept": 0}
         for key in keys:
             if db.exists("applications", council=c["name"], key_val=key):
+                stats["already_saved"] += 1
                 continue
             try:
                 app = s.application(key)
             except Exception as e:
                 log.warning("%s %s detail failed: %s", c["name"], key, e)
                 continue
-            if "approv" not in (app.get("decision") or "").lower() and "grant" not in (app.get("decision") or "").lower():
+            decision = (app.get("decision") or "").lower()
+            if "approv" not in decision and "grant" not in decision:
+                stats["not_approved"] += 1
                 continue
             score = size_score(app.get("description"))
             if not score:
+                stats["too_small"] += 1
                 continue
+            stats["kept"] += 1
             row = {k: app[k] for k in ("council", "key_val", "reference", "address", "description",
                                        "decision", "decision_date", "url")}
             row["size_score"] = score
@@ -73,6 +98,7 @@ def run():
             save_contact(app.get("applicant_name"), "applicant", app, saved["id"])
             save_contact(app.get("agent_company") or app.get("agent_name"), "agent", app, saved["id"])
             kept += 1
+        log.info("%s: %s", c["name"], stats)
     log.info("Run complete: %d new qualifying applications", kept)
 
 

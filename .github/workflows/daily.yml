@@ -3,7 +3,11 @@ name: Daily planning scrape
 on:
   schedule:
     - cron: "17 11 * * *"   # 11:17 UTC (midday UK) - laptop is usually on
-  workflow_dispatch: {}      # manual "Run workflow" button
+  workflow_dispatch:         # manual "Run workflow" button
+    inputs:
+      lookback_days:
+        description: "Days of decisions to fetch (3 = daily, 90 = backfill)"
+        default: "3"
 
 jobs:
   scrape:
@@ -20,6 +24,7 @@ jobs:
       # caffeinate stops the Mac idle-sleeping mid-run (sleep killed run #39039843131)
       - run: caffeinate -dimsu .venv/bin/python src/main.py
         env:
+          LOOKBACK_DAYS: ${{ inputs.lookback_days }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           COMPANIES_HOUSE_API_KEY: ${{ secrets.COMPANIES_HOUSE_API_KEY }}

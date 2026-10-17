@@ -30,6 +30,8 @@ MED = [
 ]
 # Anything matching these is dropped regardless
 EXCLUDE = [
+    # demolition-only applications (nothing being built)
+    r"^demolition of(?!.*\b(?:erection|construction|replacement|rebuild|new)\b)",
     r"\btree\b|\btpo\b|\bfell\b|\bprune\b|\bcrown\b",
     r"\bdischarge of conditions?\b|\bdetails pursuant\b|\bnon[- ]material amendment\b",
     r"\bcertificate of lawful\b|\blawful development\b",

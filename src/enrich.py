@@ -22,22 +22,38 @@ SOCIALS = {
 }
 
 
+_SUFFIX = re.compile(r"\b(ltd|limited|llp|plc|uk|the|and|&|co|company)\b")
+
+
+def norm_company(name: str) -> str:
+    """'Lisa Estates (Paragon) Ltd.' -> 'lisa estates paragon'"""
+    n = re.sub(r"[^a-z0-9& ]", " ", (name or "").lower())
+    n = _SUFFIX.sub(" ", n)
+    return " ".join(n.split())
+
+
 def companies_house(name: str) -> dict:
+    """Return Companies House data only when a result's name genuinely matches."""
     if not CH_KEY or not name:
         return {}
     r = requests.get(
         "https://api.company-information.service.gov.uk/search/companies",
-        params={"q": name, "items_per_page": 1},
+        params={"q": name, "items_per_page": 10},
         auth=(CH_KEY, ""),
         timeout=20,
     )
-    if r.status_code != 200 or not r.json().get("items"):
+    if r.status_code != 200:
         return {}
-    c = r.json()["items"][0]
+    want = norm_company(name)
+    if not want:
+        return {}
+    match = next((c for c in r.json().get("items", []) if norm_company(c.get("title")) == want), None)
+    if not match:
+        return {}
+    c = match
     out = {
         "company_number": c.get("company_number"),
         "company_status": c.get("company_status"),
-        "registered_address": c.get("address_snippet"),
     }
     officers = requests.get(
         f"https://api.company-information.service.gov.uk/company/{c['company_number']}/officers",
