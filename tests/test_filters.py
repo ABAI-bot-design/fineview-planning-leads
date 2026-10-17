@@ -21,6 +21,15 @@ CASES = [
 ]
 
 
+def test_scoring():
+    from scoring import lead_score, postcode
+    assert postcode("56 Williams Way Radlett Hertfordshire WD7 7HB") == "WD7 7HB"
+    assert postcode("no postcode here") is None
+    assert lead_score("High", 0, True, True) == 100
+    assert lead_score("Med", 12, False, False) == 25
+    assert lead_score("High", 5, True, False) > lead_score("Med", 5, True, False)
+
+
 def test_norm_company():
     from enrich import norm_company
     assert norm_company("Lisa Estates (Paragon) Ltd") == norm_company("LISA ESTATES (PARAGON) LIMITED")

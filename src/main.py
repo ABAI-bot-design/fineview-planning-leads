@@ -12,6 +12,7 @@ import db  # noqa: E402
 from enrich import enrich_business  # noqa: E402
 from filters import classify_party, is_business, size_score  # noqa: E402
 from idox import IdoxScraper  # noqa: E402
+from scoring import distance_miles, lead_score, postcode  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("planning")
@@ -29,7 +30,7 @@ def clean_email(email):
     return email.strip()
 
 
-def save_contact(name, role, app, app_id):
+def save_contact(name, role, app, app_id, reachable):
     if not name or PLACEHOLDER_NAMES.match(name):
         return
     category = classify_party(name, role)
@@ -50,6 +51,8 @@ def save_contact(name, role, app, app_id):
                 row[k] = v
         row["status"] = "new"
     contact = db.upsert("contacts", {k: v for k, v in row.items() if v is not None}, "name,category")
+    reachable["email"] |= bool(biz and contact.get("email"))
+    reachable["phone"] |= bool(biz and contact.get("phone"))
     db.upsert("application_contacts",
               {"application_id": app_id, "contact_id": contact["id"], "role": role},
               "application_id,contact_id,role")
@@ -94,9 +97,16 @@ def run():
             row = {k: app[k] for k in ("council", "key_val", "reference", "address", "description",
                                        "decision", "decision_date", "url")}
             row["size_score"] = score
+            row["postcode"] = postcode(app.get("address"))
+            row["distance_miles"] = distance_miles(row["postcode"])
             saved = db.upsert("applications", row, "council,key_val")
-            save_contact(app.get("applicant_name"), "applicant", app, saved["id"])
-            save_contact(app.get("agent_company") or app.get("agent_name"), "agent", app, saved["id"])
+            reachable = {"email": False, "phone": False}
+            save_contact(app.get("applicant_name"), "applicant", app, saved["id"], reachable)
+            save_contact(app.get("agent_company") or app.get("agent_name"), "agent", app, saved["id"], reachable)
+            db.upsert("applications", {"council": row["council"], "key_val": row["key_val"],
+                                       "lead_score": lead_score(score, row["distance_miles"],
+                                                                reachable["email"], reachable["phone"])},
+                      "council,key_val")
             kept += 1
         log.info("%s: %s", c["name"], stats)
     log.info("Run complete: %d new qualifying applications", kept)
