@@ -21,7 +21,7 @@ CFG = yaml.safe_load((pathlib.Path(__file__).parent.parent / "config/councils.ya
 
 
 PLACEHOLDER_NAMES = re.compile(r"^\s*(not available|n/?a|none|unknown|tbc|-+|\.)?\s*$", re.I)
-BLOCKED_EMAIL = re.compile(r"(\.gov\.uk|\.police\.uk|\.nhs\.uk)$", re.I)
+BLOCKED_EMAIL = re.compile(r"(\.gov\.uk|\.police\.uk|\.nhs\.uk|plandaportalcomms\.co\.uk)$", re.I)
 
 
 def clean_email(email):
@@ -76,7 +76,11 @@ def run():
             log.error("%s search failed: %s", c["name"], e)
             continue
         stats = {"decided": len(keys), "already_saved": 0, "not_approved": 0, "too_small": 0, "kept": 0}
-        for key in keys:
+        for key, list_desc in keys:
+            # cheap pre-filter on the search-results description (saves ~4 requests per small job)
+            if list_desc and not size_score(list_desc):
+                stats["too_small"] += 1
+                continue
             if db.exists("applications", council=c["name"], key_val=key):
                 stats["already_saved"] += 1
                 continue

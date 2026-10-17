@@ -83,7 +83,9 @@ class IdoxScraper:
                 m = re.search(r"keyVal=([A-Z0-9]+)", a["href"])
                 if m and m.group(1) not in seen:
                     seen.add(m.group(1))
-                    yield m.group(1)
+                    # link text is the proposal description: lets us skip small jobs
+                    # without fetching their detail pages
+                    yield m.group(1), a.get_text(" ", strip=True)
             nxt = page.select_one("a.next")
             if not nxt:
                 break
