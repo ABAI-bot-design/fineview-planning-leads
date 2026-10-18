@@ -29,6 +29,7 @@ MED = [
     r"\b(?:rear|side|front|first[- ]floor|ground[- ]floor|infill|garage|storey|house|dwelling)\b[^.;]{0,30}\bextensions?\b",
     r"\bextensions? to (?:the )?(?:rear|side|front|house|dwelling|property)\b",
     r"\broof lantern\b",
+    r"\bannexe\b|\bgarden room\b",
     r"\bglazing\b|\bbi-?fold\b|\bsliding doors?\b",
 ]
 # Anything matching these is dropped regardless
