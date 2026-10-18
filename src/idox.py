@@ -54,21 +54,39 @@ class IdoxScraper:
         r.raise_for_status()
         return BeautifulSoup(r.text, "html.parser")
 
+    # Idox advanced-search date fields
+    DATE_FIELDS = {"decided": "applicationDecision", "validated": "applicationValidated"}
+
     def search_decided(self, days: int):
-        """Yield keyVals of applications decided in the last `days` days."""
+        yield from self.search(days, "decided")
+
+    def search(self, days: int, by: str = "decided"):
+        """Yield (keyVal, description) for applications decided/validated in the last `days` days.
+        Sets self.diagnostic when the search returns nothing, so the run log says why."""
+        self.diagnostic = None
         form = self._get(f"{self.base}/search.do?action=advanced")
         csrf = form.find("input", {"name": "_csrf"})
         end = date.today()
         start = end - timedelta(days=days)
         fmt = "%d/%m/%Y"
+        field = self.DATE_FIELDS[by]
         data = {
-            "date(applicationDecisionStart)": start.strftime(fmt),
-            "date(applicationDecisionEnd)": end.strftime(fmt),
+            f"date({field}Start)": start.strftime(fmt),
+            f"date({field}End)": end.strftime(fmt),
             "searchType": "Application",
         }
         if csrf:
             data["_csrf"] = csrf["value"]
         page = self._post(f"{self.base}/advancedSearchResults.do?action=firstPage", data)
+        if not page.select("li.searchresult"):
+            title = page.title.get_text(strip=True) if page.title else ""
+            msg = page.select_one(".messagebox, .errors, #searchResultsContainer p, .content p")
+            self.diagnostic = {
+                "page_title": title[:120],
+                "message": msg.get_text(" ", strip=True)[:300] if msg else None,
+                "form_has_field": bool(form.find(attrs={"name": f"date({field}Start)"})),
+                "csrf_found": bool(csrf),
+            }
         # Idox shows 10 results per page by default; ask for 100 to cut requests
         try:
             page = self._post(f"{self.base}/pagedSearchResults.do",
@@ -139,6 +157,7 @@ class IdoxScraper:
             "status": summary.get("Status"),
             "decision": summary.get("Decision"),
             "decision_date": summary.get("Decision Issued Date"),
+            "validated_date": summary.get("Application Validated"),
             "applicant_name": details.get("Applicant Name"),
             "applicant_address": details.get("Applicant Address"),
             "agent_name": details.get("Agent Name"),

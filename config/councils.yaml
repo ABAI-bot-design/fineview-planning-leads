@@ -6,8 +6,9 @@ councils:
     base_url: https://www6.hertsmere.gov.uk/online-applications
     enabled: true
   - name: St Albans
-    base_url: https://planningapplications.stalbans.gov.uk/planning/search-applications
-    enabled: false   # TODO: confirm portal type
+    # new Idox system for applications logged from 8 Oct 2026 (old system kept for earlier ones)
+    base_url: https://pa.stalbans.gov.uk/online-applications
+    enabled: true
   - name: Watford
     base_url: https://pa.watford.gov.uk/publicaccess
     enabled: true
@@ -15,14 +16,14 @@ councils:
     base_url: https://www3.threerivers.gov.uk/online-applications
     enabled: true
   - name: Welwyn Hatfield
-    base_url: https://planning.welhat.gov.uk/online-applications
-    enabled: false   # TODO: confirm portal type
+    base_url: https://planning.welhat.gov.uk/Search/Advanced
+    enabled: false   # custom (non-Idox) portal - needs its own adapter
   - name: Barnet
     base_url: https://publicaccess.barnet.gov.uk/online-applications
     enabled: true
   - name: Harrow
-    base_url: https://planningsearch.harrow.gov.uk/planning/search-applications
-    enabled: false   # TODO: confirm portal type
+    base_url: https://planningsearch.harrow.gov.uk/planning/index.html?fa=search
+    enabled: false   # custom (non-Idox) portal - needs its own adapter
 
 # How far back each run looks (runs weekly; 8 days gives 1 day overlap)
 lookback_days: 8

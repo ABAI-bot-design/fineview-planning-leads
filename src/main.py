@@ -70,50 +70,93 @@ def run():
         if not c.get("enabled"):
             continue
         s = IdoxScraper(c["name"], c["base_url"])
-        try:
-            keys = list(s.search_decided(days))
-        except Exception as e:  # one broken council shouldn't stop the run
-            log.error("%s search failed: %s", c["name"], e)
-            continue
-        stats = {"decided": len(keys), "already_saved": 0, "not_approved": 0, "too_small": 0, "kept": 0}
-        for key, list_desc in keys:
-            # cheap pre-filter on the search-results description (saves ~4 requests per small job)
-            if list_desc and not size_score(list_desc):
-                stats["too_small"] += 1
-                continue
-            if db.exists("applications", council=c["name"], key_val=key):
-                stats["already_saved"] += 1
-                continue
-            try:
-                app = s.application(key)
-            except Exception as e:
-                log.warning("%s %s detail failed: %s", c["name"], key, e)
-                continue
-            decision = (app.get("decision") or "").lower()
-            if "approv" not in decision and "grant" not in decision:
-                stats["not_approved"] += 1
-                continue
-            score = size_score(app.get("description"))
-            if not score:
-                stats["too_small"] += 1
-                continue
-            stats["kept"] += 1
-            row = {k: app[k] for k in ("council", "key_val", "reference", "address", "description",
-                                       "decision", "decision_date", "url")}
-            row["size_score"] = score
-            row["postcode"] = postcode(app.get("address"))
-            row["distance_miles"] = distance_miles(row["postcode"])
-            saved = db.upsert("applications", row, "council,key_val")
-            reachable = {"email": False, "phone": False}
-            save_contact(app.get("applicant_name"), "applicant", app, saved["id"], reachable)
-            save_contact(app.get("agent_company") or app.get("agent_name"), "agent", app, saved["id"], reachable)
-            db.upsert("applications", {"council": row["council"], "key_val": row["key_val"],
-                                       "lead_score": lead_score(score, row["distance_miles"],
-                                                                reachable["email"], reachable["phone"])},
-                      "council,key_val")
-            kept += 1
-        log.info("%s: %s", c["name"], stats)
+        # 'validated' = newly submitted (contact architects early); 'decided' = approvals
+        for by in ("validated", "decided"):
+            kept += process_search(s, c["name"], days, by)
     log.info("Run complete: %d new qualifying applications", kept)
+
+
+def record_run(council, by, stats=None, error=None):
+    try:
+        db.insert("runs", {"council": council, "search": by, "stats": stats, "error": error})
+    except Exception as e:  # logging must never break the scrape
+        log.warning("could not record run: %s", e)
+
+
+def process_search(s, council, days, by):
+    try:
+        keys = list(s.search(days, by))
+    except Exception as e:  # one broken council shouldn't stop the run
+        log.error("%s %s search failed: %s", council, by, e)
+        record_run(council, by, error=str(e)[:500])
+        return 0
+    stats = {"found": len(keys), "already_saved": 0, "promoted_to_approved": 0, "refused_or_withdrawn": 0,
+             "too_small": 0, "kept": 0}
+    if not keys and s.diagnostic:
+        stats["diagnostic"] = s.diagnostic
+    kept = 0
+    for key, list_desc in keys:
+        # cheap pre-filter on the search-results description (saves ~4 requests per small job)
+        if list_desc and not size_score(list_desc):
+            stats["too_small"] += 1
+            continue
+        if db.exists("applications", council=council, key_val=key):
+            stats["already_saved"] += 1
+            if by == "decided":
+                # it was saved at submission; now decided - record the outcome
+                try:
+                    app = s.application(key)
+                    db.upsert("applications", {
+                        "council": council, "key_val": key, "decision": app.get("decision"),
+                        "decision_date": app.get("decision_date"), "stage": stage_of(app.get("decision")),
+                    }, "council,key_val")
+                    stats["promoted_to_approved"] += 1
+                except Exception as e:
+                    log.warning("%s %s update failed: %s", council, key, e)
+            continue
+        try:
+            app = s.application(key)
+        except Exception as e:
+            log.warning("%s %s detail failed: %s", council, key, e)
+            continue
+        stage = stage_of(app.get("decision"))
+        if stage == "dead":
+            stats["refused_or_withdrawn"] += 1
+            continue
+        score = size_score(app.get("description"))
+        if not score:
+            stats["too_small"] += 1
+            continue
+        stats["kept"] += 1
+        row = {k: app[k] for k in ("council", "key_val", "reference", "address", "description",
+                                   "decision", "decision_date", "validated_date", "url")}
+        row["stage"] = stage
+        row["size_score"] = score
+        row["postcode"] = postcode(app.get("address"))
+        row["distance_miles"] = distance_miles(row["postcode"])
+        saved = db.upsert("applications", row, "council,key_val")
+        reachable = {"email": False, "phone": False}
+        save_contact(app.get("applicant_name"), "applicant", app, saved["id"], reachable)
+        save_contact(app.get("agent_company") or app.get("agent_name"), "agent", app, saved["id"], reachable)
+        db.upsert("applications", {"council": row["council"], "key_val": row["key_val"],
+                                   "lead_score": lead_score(score, row["distance_miles"],
+                                                            reachable["email"], reachable["phone"])},
+                  "council,key_val")
+        kept += 1
+    log.info("%s %s: %s", council, by, stats)
+    record_run(council, by, stats)
+    return kept
+
+
+def stage_of(decision) -> str:
+    d = (decision or "").lower()
+    if not d or "pending" in d or "awaiting" in d:
+        return "submitted"
+    if "refus" in d or "withdraw" in d or "invalid" in d or "dismiss" in d:
+        return "dead"
+    if "approv" in d or "grant" in d or "permit" in d or "lawful" in d or "not required" in d:
+        return "approved"
+    return "submitted"
 
 
 def rescore():

@@ -20,6 +20,11 @@ def upsert(table: str, row: dict, on_conflict: str) -> dict:
     return r.json()[0]
 
 
+def insert(table: str, row: dict) -> None:
+    r = requests.post(f"{URL}/{table}", headers=H, json=row, timeout=30)
+    r.raise_for_status()
+
+
 def select(table: str, columns: str = "*", **params) -> list[dict]:
     """Fetch all rows (paged) - e.g. select('applications', 'id,description')."""
     rows, start = [], 0
