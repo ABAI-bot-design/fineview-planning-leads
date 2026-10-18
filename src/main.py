@@ -116,5 +116,32 @@ def run():
     log.info("Run complete: %d new qualifying applications", kept)
 
 
+def rescore():
+    """Re-apply the current size filter and scoring to everything already saved.
+    No scraping. Non-qualifying rows are flagged excluded (kept for audit, hidden from views)."""
+    apps = db.select("applications", "id,description,distance_miles")
+    links = db.select("application_contacts", "application_id,contact_id")
+    biz = {c["id"]: c for c in db.select("contacts", "id,is_business,email,phone") if c["is_business"]}
+    by_app = {}
+    for l in links:
+        if l["contact_id"] in biz:
+            by_app.setdefault(l["application_id"], []).append(biz[l["contact_id"]])
+    changed = excluded = 0
+    for a in apps:
+        size = size_score(a["description"])
+        if not size:
+            db.update("applications", {"excluded": True}, id=a["id"])
+            excluded += 1
+            continue
+        cs = by_app.get(a["id"], [])
+        miles = float(a["distance_miles"]) if a["distance_miles"] is not None else None
+        db.update("applications", {
+            "excluded": False, "size_score": size,
+            "lead_score": lead_score(size, miles, any(c.get("email") for c in cs), any(c.get("phone") for c in cs)),
+        }, id=a["id"])
+        changed += 1
+    log.info("Rescore: %d kept and rescored, %d excluded", changed, excluded)
+
+
 if __name__ == "__main__":
-    run()
+    rescore() if os.environ.get("MODE") == "rescore" else run()

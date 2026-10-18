@@ -9,7 +9,8 @@ HIGH = [
     r"\berection of (?:a |an |one |two |three |four |five |\d+ )?(?:detached |semi-detached |terraced )?(?:dwelling|house|houses|dwellings|homes?)\b",
     r"\bnew (?:dwelling|house|build|home)s?\b",
     r"\breplacement dwelling\b",
-    r"\bdemolition of .* and (?:the )?(?:erection|construction)\b",
+    # demolish-and-rebuild of a whole home (not just "demolish conservatory, build extension")
+    r"\bdemolition of .*\b(?:erection|construction) of (?:a |an |\d+ |one |two |three )?(?:new |replacement )?(?:detached |semi-detached |terraced )?(?:dwelling|house|home|bungalow)s?\b",
     r"\b\d+\s*(?:no\.?\s*)?(?:flats|apartments|dwellings|units)\b",
     r"\btwo[- ]storey\b.*\bextension\b",
     r"\bdouble[- ]storey\b",
@@ -24,17 +25,24 @@ MED = [
     r"\bwrap[- ]around\b",
     r"\bloft conversion\b.*\bdormer\b|\bdormer\b",
     r"\bconservatory\b",
-    r"\bextension\b",
+    # a BUILDING extension only - "extension of driveway/patio" must not count
+    r"\b(?:rear|side|front|first[- ]floor|ground[- ]floor|infill|garage|storey|house|dwelling)\b[^.;]{0,30}\bextensions?\b",
+    r"\bextensions? to (?:the )?(?:rear|side|front|house|dwelling|property)\b",
     r"\broof lantern\b",
     r"\bglazing\b|\bbi-?fold\b|\bsliding doors?\b",
 ]
 # Anything matching these is dropped regardless
 EXCLUDE = [
+    # groundworks / landscaping only - no windows or doors involved
+    r"^(?:alteration|extension|widening|enlargement|creation|formation)s?(?: and \w+)? (?:of|to) (?:the |an |a )?(?:existing )?"
+    r"(?:driveway|drive|hardstanding|patio|decking|crossover|vehicle crossover|dropped kerb|parking|garden|terrace)\b",
+    r"^(?:new |proposed )?(?:driveway|hardstanding|patio|decking|dropped kerb|vehicle crossover)\b",
     # demolition-only applications (nothing being built)
     r"^demolition of(?!.*\b(?:erection|construction|replacement|rebuild|new)\b)",
     r"\btree\b|\btpo\b|\bfell\b|\bprune\b|\bcrown\b",
     r"\bdischarge of conditions?\b|\bdetails pursuant\b|\bnon[- ]material amendment\b",
-    r"\bcertificate of lawful\b|\blawful development\b",
+    # lawful-development certificates for EXISTING use are paperwork; PROPOSED ones are real builds
+    r"\bcertificate of lawful(?:ness)?\b.*\bexisting (?:use|development)\b|\bexisting use\b",
     r"\badvertisement\b|\bsignage\b|\bsign\b",
     r"\bfence\b|\bgate\b|\bwall\b(?!.*extension)",
     r"\bporch\b(?!.*extension)",

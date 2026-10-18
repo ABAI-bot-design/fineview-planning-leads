@@ -13,11 +13,20 @@ CASES = [
     ("Erection of conservatory", "Med"),
     ("T1 Oak - crown reduce by 2m (TPO)", None),
     ("Discharge of conditions 3 and 4 of planning permission 23/0012/FUL", None),
-    ("Certificate of lawful development for single storey rear extension", None),
+    ("Certificate of Lawfulness Proposed Development: two storey rear extension", "High"),
+    ("Certificate of Lawfulness Existing Use: use of outbuilding as gym", None),
+    ("Demolition of existing rear conservatory and construction of single storey rear extension.", "Med"),
+    ("Demolition of existing bungalow and erection of a replacement detached dwelling", "High"),
     ("Installation of advertisement signage", None),
     ("Replacement front boundary fence", None),
     ("Demolition of existing modern extension comprising the conservatory, kitchen and utility room.", None),
     ("Demolition of existing garage, erection of single storey side infill extension", "Med"),
+    ("Alteration and extension of driveway.", None),
+    ("Extension of existing patio and new steps", None),
+    ("Formation of vehicle crossover", None),
+    ("Single storey rear extension and alterations to driveway", "Med"),
+    ("Part single, part two storey rear extension", "High"),
+    ("Rear extension with roof lantern", "Med"),
 ]
 
 

@@ -8,6 +8,11 @@ on:
       lookback_days:
         description: "Days of decisions to fetch (8 = weekly, 90 = backfill)"
         default: "8"
+      mode:
+        description: "scrape = fetch new applications; rescore = re-check saved ones with the latest filter (fast)"
+        type: choice
+        options: [scrape, rescore]
+        default: scrape
 
 jobs:
   scrape:
@@ -25,6 +30,7 @@ jobs:
       - run: caffeinate -dimsu .venv/bin/python src/main.py
         env:
           LOOKBACK_DAYS: ${{ inputs.lookback_days }}
+          MODE: ${{ inputs.mode }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           COMPANIES_HOUSE_API_KEY: ${{ secrets.COMPANIES_HOUSE_API_KEY }}
