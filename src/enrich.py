@@ -107,9 +107,44 @@ def scrape_site(url: str) -> dict:
     return {k: v for k, v in out.items() if v}
 
 
-def enrich_business(name: str) -> dict:
+FREEMAIL = {"gmail.com", "googlemail.com", "hotmail.com", "hotmail.co.uk", "outlook.com", "live.com",
+            "live.co.uk", "yahoo.com", "yahoo.co.uk", "aol.com", "icloud.com", "me.com", "btinternet.com",
+            "sky.com", "virginmedia.com", "msn.com", "protonmail.com"}
+
+
+def site_from_email(email: str | None) -> str | None:
+    """A firm's own email domain is almost always its website (info@smith-newton.com -> smith-newton.com)."""
+    if not email or "@" not in email:
+        return None
+    domain = email.rsplit("@", 1)[1].strip().lower()
+    if domain in FREEMAIL or domain.endswith(".gov.uk"):
+        return None
+    for url in (f"https://www.{domain}", f"https://{domain}"):
+        try:
+            r = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True)
+            if r.ok and len(r.text) > 500:
+                return r.url.rstrip("/")
+        except requests.RequestException:
+            continue
+    return None
+
+
+# template/placeholder social links that site builders ship by default
+JUNK_SOCIAL = re.compile(r"(wix|squarespace|godaddy|wordpress|weebly|jimdo)(?:com)?/?$|/sharer|/share\?|/intent/", re.I)
+
+
+def clean_socials(d: dict) -> dict:
+    for k in ("instagram", "facebook", "linkedin"):
+        if d.get(k) and JUNK_SOCIAL.search(d[k]):
+            d.pop(k)
+    return d
+
+
+def enrich_business(name: str, email: str | None = None) -> dict:
     data = companies_house(name)
-    site = find_website(name)
+    site = site_from_email(email) or find_website(name)
     if site:
-        data.update(scrape_site(site))
-    return data
+        found = scrape_site(site)
+        found.pop("email", None) if email else None  # keep the planning-record email as primary
+        data.update(found)
+    return clean_socials(data)

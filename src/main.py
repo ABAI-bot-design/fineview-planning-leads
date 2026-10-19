@@ -43,7 +43,7 @@ def save_contact(name, role, app, app_id, reachable):
                 "email": clean_email(app.get("agent_email")),
                 "postal_address": app.get("agent_address"),
             })
-        found = enrich_business(name)  # enrich THIS party, not the other one
+        found = enrich_business(name, row.get("email"))  # enrich THIS party; its email domain points to its site
         if found.get("email"):
             found["email"] = clean_email(found["email"])
         for k, v in found.items():
@@ -186,5 +186,29 @@ def rescore():
     log.info("Rescore: %d kept and rescored, %d excluded", changed, excluded)
 
 
+def enrich_existing():
+    """Backfill website/socials/phone for saved BUSINESS contacts (never homeowners)."""
+    cols = "id,name,email,phone,website,instagram,facebook,linkedin"
+    done = 0
+    for c in db.select("contacts", cols, is_business="eq.true"):
+        if PLACEHOLDER_NAMES.match(c["name"] or "") or (c["website"] and c["instagram"] and c["linkedin"]):
+            continue
+        try:
+            found = enrich_business(c["name"], c["email"])
+        except Exception as e:
+            log.warning("enrich %s failed: %s", c["name"], e)
+            continue
+        if found.get("email"):
+            found["email"] = clean_email(found["email"])
+        updates = {k: v for k, v in found.items()
+                   if k in ("website", "instagram", "facebook", "linkedin", "phone",
+                            "company_number", "company_status", "directors") and v and not c.get(k)}
+        if updates:
+            db.update("contacts", updates, id=c["id"])
+            done += 1
+    log.info("Enrich: updated %d business contacts", done)
+
+
 if __name__ == "__main__":
-    rescore() if os.environ.get("MODE") == "rescore" else run()
+    mode = os.environ.get("MODE")
+    rescore() if mode == "rescore" else enrich_existing() if mode == "enrich" else run()

@@ -9,9 +9,9 @@ on:
         description: "Days of decisions to fetch (8 = weekly, 90 = backfill)"
         default: "8"
       mode:
-        description: "scrape = fetch new applications; rescore = re-check saved ones with the latest filter (fast)"
+        description: "scrape = fetch new applications; rescore = re-check saved ones; enrich = fill websites/socials for saved businesses"
         type: choice
-        options: [scrape, rescore]
+        options: [scrape, rescore, enrich]
         default: scrape
 
 jobs:
