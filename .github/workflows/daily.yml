@@ -2,7 +2,7 @@ name: Weekly planning scrape
 
 on:
   schedule:
-    - cron: "17 11 * * 1"   # Mondays 11:17 UTC (midday UK) - weekly, laptop is usually on
+    - cron: "3 7 * * 1"   # Mondays 07:03 UTC (7am UK in winter, 8am in summer). If the Mac is off, the job waits and runs when it comes online (up to 24h)
   workflow_dispatch:         # manual "Run workflow" button
     inputs:
       lookback_days:
