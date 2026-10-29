@@ -13,6 +13,9 @@ on:
         type: choice
         options: [scrape, rescore, enrich]
         default: scrape
+      councils:
+        description: "Only these councils, comma-separated (blank = all), e.g. Barnet"
+        default: ""
 
 jobs:
   scrape:
@@ -31,6 +34,7 @@ jobs:
         env:
           LOOKBACK_DAYS: ${{ inputs.lookback_days }}
           MODE: ${{ inputs.mode }}
+          COUNCILS: ${{ inputs.councils }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           COMPANIES_HOUSE_API_KEY: ${{ secrets.COMPANIES_HOUSE_API_KEY }}

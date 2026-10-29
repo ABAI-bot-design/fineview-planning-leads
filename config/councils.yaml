@@ -21,6 +21,10 @@ councils:
   - name: Barnet
     base_url: https://publicaccess.barnet.gov.uk/online-applications
     enabled: true
+    # Barnet returns 429 "Too Many Requests" at the default pace: go slower and
+    # rest between the submitted and decided searches
+    delay: 6
+    pause_between_searches: 120
   - name: Harrow
     base_url: https://planningsearch.harrow.gov.uk/planning/index.html?fa=search
     enabled: false   # custom (non-Idox) portal - needs its own adapter

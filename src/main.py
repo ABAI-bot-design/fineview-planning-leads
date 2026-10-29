@@ -4,6 +4,7 @@ import os
 import pathlib
 import re
 import sys
+import time
 
 import yaml
 
@@ -64,14 +65,18 @@ def save_contact(name, role, app, app_id, reachable):
 def run():
     # LOOKBACK_DAYS env (set from the "Run workflow" form) overrides config, e.g. 90 for a backfill
     days = int(os.environ.get("LOOKBACK_DAYS") or CFG["lookback_days"])
-    log.info("Looking back %d days", days)
+    # COUNCILS env (e.g. "Barnet") limits a manual run to some councils; blank = all enabled
+    only = {x.strip().lower() for x in (os.environ.get("COUNCILS") or "").split(",") if x.strip()}
+    log.info("Looking back %d days%s", days, f" (councils: {', '.join(sorted(only))})" if only else "")
     kept = 0
     for c in CFG["councils"]:
-        if not c.get("enabled"):
+        if not c.get("enabled") or (only and c["name"].lower() not in only):
             continue
-        s = IdoxScraper(c["name"], c["base_url"])
+        s = IdoxScraper(c["name"], c["base_url"], delay=float(c.get("delay", 2.0)))
         # 'validated' = newly submitted (contact architects early); 'decided' = approvals
-        for by in ("validated", "decided"):
+        for i, by in enumerate(("validated", "decided")):
+            if i and c.get("pause_between_searches"):
+                time.sleep(float(c["pause_between_searches"]))  # some councils throttle back-to-back searches
             kept += process_search(s, c["name"], days, by)
     log.info("Run complete: %d new qualifying applications", kept)
 
@@ -91,7 +96,8 @@ def process_search(s, council, days, by):
         record_run(council, by, error=str(e)[:500])
         return 0
     stats = {"found": len(keys), "already_saved": 0, "promoted_to_approved": 0, "refused_or_withdrawn": 0,
-             "too_small": 0, "kept": 0}
+             "too_small": 0, "kept": 0, "detail_failed": 0}
+    errors = []  # first few failure messages, saved with the run so a gap is never silent
     if not keys and s.diagnostic:
         stats["diagnostic"] = s.diagnostic
     kept = 0
@@ -113,11 +119,15 @@ def process_search(s, council, days, by):
                     stats["promoted_to_approved"] += 1
                 except Exception as e:
                     log.warning("%s %s update failed: %s", council, key, e)
+                    stats["detail_failed"] += 1
+                    errors.append(str(e)[:200])
             continue
         try:
             app = s.application(key)
         except Exception as e:
             log.warning("%s %s detail failed: %s", council, key, e)
+            stats["detail_failed"] += 1
+            errors.append(str(e)[:200])
             continue
         stage = stage_of(app.get("decision"))
         if stage == "dead":
@@ -143,6 +153,9 @@ def process_search(s, council, days, by):
                                                             reachable["email"], reachable["phone"])},
                   "council,key_val")
         kept += 1
+    stats["throttle_waits"] = getattr(s, "throttle_waits", 0)
+    if errors:
+        stats["errors"] = errors[:3]
     log.info("%s %s: %s", council, by, stats)
     record_run(council, by, stats)
     return kept

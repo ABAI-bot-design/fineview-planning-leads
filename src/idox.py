@@ -12,7 +12,10 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 UA = "FineViewPlanningLeads/1.0 (+contact: fineviewwindows.co.uk)"
-DELAY = 2.0  # seconds between requests; be polite to council servers
+DELAY = 2.0  # default seconds between requests; be polite to council servers
+# When a council says "Too Many Requests" (429) or is briefly unavailable (503),
+# wait and try again instead of dropping the application. Waits grow each time.
+THROTTLE_WAITS = (60, 120, 240)
 
 
 CERTS_DIR = pathlib.Path(__file__).resolve().parent.parent / "certs"
@@ -29,10 +32,17 @@ def ca_bundle() -> str:
     return str(path)
 
 
+class Throttled(requests.HTTPError):
+    """The council kept refusing requests after every wait."""
+
+
 class IdoxScraper:
-    def __init__(self, council: str, base_url: str):
+    def __init__(self, council: str, base_url: str, delay: float = DELAY, sleep=time.sleep):
         self.council = council
         self.base = base_url.rstrip("/")
+        self.delay = delay
+        self.sleep = sleep          # injectable for tests
+        self.throttle_waits = 0     # how many times the council made us back off (for run stats)
         self.s = requests.Session()
         self.s.headers["User-Agent"] = UA
         self.s.verify = ca_bundle()
@@ -42,17 +52,30 @@ class IdoxScraper:
                       allowed_methods=frozenset({"GET"}))
         self.s.mount("https://", HTTPAdapter(max_retries=retry))
 
+    def _request(self, method, url, **kw):
+        """One polite request. On 429/503, honour Retry-After (or our own growing wait)
+        and retry; give up with Throttled after THROTTLE_WAITS are used up."""
+        for attempt in range(len(THROTTLE_WAITS) + 1):
+            self.sleep(self.delay)
+            r = self.s.request(method, url, timeout=TIMEOUT, **kw)
+            if r.status_code not in (429, 503):
+                r.raise_for_status()
+                return BeautifulSoup(r.text, "html.parser")
+            if attempt == len(THROTTLE_WAITS):
+                break
+            wait = THROTTLE_WAITS[attempt]
+            ra = r.headers.get("Retry-After", "")
+            if ra.isdigit():
+                wait = max(wait, min(int(ra), 900))
+            self.throttle_waits += 1
+            self.sleep(wait)
+        raise Throttled(f"{r.status_code} from {self.council} after {len(THROTTLE_WAITS)} waits: {url}", response=r)
+
     def _get(self, url, **kw):
-        time.sleep(DELAY)
-        r = self.s.get(url, timeout=TIMEOUT, **kw)
-        r.raise_for_status()
-        return BeautifulSoup(r.text, "html.parser")
+        return self._request("GET", url, **kw)
 
     def _post(self, url, data):
-        time.sleep(DELAY)
-        r = self.s.post(url, data=data, timeout=TIMEOUT)
-        r.raise_for_status()
-        return BeautifulSoup(r.text, "html.parser")
+        return self._request("POST", url, data=data)
 
     # Idox advanced-search date fields
     DATE_FIELDS = {"decided": "applicationDecision", "validated": "applicationValidated"}
@@ -114,6 +137,8 @@ class IdoxScraper:
         The tab also lists ward councillors / case officers - never take those."""
         try:
             soup = self._get(f"{self.base}/applicationDetails.do", params={"activeTab": "contacts", "keyVal": key})
+        except Throttled:
+            raise
         except requests.HTTPError:
             return {}
         out = {}
