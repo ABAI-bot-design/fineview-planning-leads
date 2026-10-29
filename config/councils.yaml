@@ -21,9 +21,10 @@ councils:
   - name: Barnet
     base_url: https://publicaccess.barnet.gov.uk/online-applications
     enabled: true
-    # Barnet returns 429 "Too Many Requests" at the default pace: go slower and
-    # rest between the submitted and decided searches
-    delay: 6
+    # Barnet returns 429 "Too Many Requests" at the default pace and then blocks for
+    # long spells: go slow, rest between searches, and stop for the week if it keeps
+    # refusing (saved jobs are kept; the next run carries on where this one stopped)
+    delay: 12
     pause_between_searches: 120
   - name: Harrow
     base_url: https://planningsearch.harrow.gov.uk/planning/index.html?fa=search

@@ -12,7 +12,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import db  # noqa: E402
 from enrich import enrich_business  # noqa: E402
 from filters import classify_party, is_business, size_score  # noqa: E402
-from idox import IdoxScraper  # noqa: E402
+from idox import IdoxScraper, Throttled  # noqa: E402
 from scoring import distance_miles, lead_score, postcode  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -75,6 +75,10 @@ def run():
         s = IdoxScraper(c["name"], c["base_url"], delay=float(c.get("delay", 2.0)))
         # 'validated' = newly submitted (contact architects early); 'decided' = approvals
         for i, by in enumerate(("validated", "decided")):
+            if getattr(s, "blocked", False):
+                log.warning("%s: skipping %s search - council is blocking us this run", c["name"], by)
+                record_run(c["name"], by, error="skipped: council was blocking requests earlier in this run")
+                continue
             if i and c.get("pause_between_searches"):
                 time.sleep(float(c["pause_between_searches"]))  # some councils throttle back-to-back searches
             kept += process_search(s, c["name"], days, by)
@@ -88,16 +92,22 @@ def record_run(council, by, stats=None, error=None):
         log.warning("could not record run: %s", e)
 
 
+MAX_THROTTLED_IN_A_ROW = 2  # give up on a council for this run after this many blocked applications
+
+
 def process_search(s, council, days, by):
     try:
         keys = list(s.search(days, by))
     except Exception as e:  # one broken council shouldn't stop the run
         log.error("%s %s search failed: %s", council, by, e)
+        if isinstance(e, Throttled):
+            s.blocked = True
         record_run(council, by, error=str(e)[:500])
         return 0
     stats = {"found": len(keys), "already_saved": 0, "promoted_to_approved": 0, "refused_or_withdrawn": 0,
              "too_small": 0, "kept": 0, "detail_failed": 0}
     errors = []  # first few failure messages, saved with the run so a gap is never silent
+    throttled_in_a_row = 0
     if not keys and s.diagnostic:
         stats["diagnostic"] = s.diagnostic
     kept = 0
@@ -117,13 +127,33 @@ def process_search(s, council, days, by):
                         "decision_date": app.get("decision_date"), "stage": stage_of(app.get("decision")),
                     }, "council,key_val")
                     stats["promoted_to_approved"] += 1
+                    throttled_in_a_row = 0
                 except Exception as e:
                     log.warning("%s %s update failed: %s", council, key, e)
                     stats["detail_failed"] += 1
                     errors.append(str(e)[:200])
+                    if isinstance(e, Throttled):
+                        throttled_in_a_row += 1
+                        if throttled_in_a_row >= MAX_THROTTLED_IN_A_ROW:
+                            s.blocked = True
+                            stats["stopped_early"] = True
+                            break
             continue
         try:
             app = s.application(key)
+            throttled_in_a_row = 0
+        except Throttled as e:
+            stats["detail_failed"] += 1
+            errors.append(str(e)[:200])
+            throttled_in_a_row += 1
+            if throttled_in_a_row >= MAX_THROTTLED_IN_A_ROW:
+                # The council is refusing us outright. Stop here: what's already saved is
+                # kept, and next week's run picks up the rest (saved ones are skipped).
+                s.blocked = True
+                stats["stopped_early"] = True
+                log.warning("%s %s: stopped early after %d throttled applications", council, by, throttled_in_a_row)
+                break
+            continue
         except Exception as e:
             log.warning("%s %s detail failed: %s", council, key, e)
             stats["detail_failed"] += 1
