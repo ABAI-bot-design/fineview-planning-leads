@@ -149,25 +149,36 @@ def domain_candidates(name: str) -> list[str]:
     words = [w for w in n.split() if w]
     if not words or not any(w not in GENERIC and len(w) >= 3 for w in words):
         return []  # nothing distinctive enough to guess from
-    stems = ["".join(words), "-".join(words)]
-    core = [w for w in words if w not in GENERIC]
-    if core and core != words:
-        stems.append("".join(core))
-    out = []
-    for stem in dict.fromkeys(stems):
-        if 3 <= len(stem) <= 40:
-            out += [f"{stem}.co.uk", f"{stem}.com", f"{stem}.uk"]
-    return out[:9]
+    # Only the WHOLE name: "Apple Planning and Design" must never become apple.com.
+    stems = [s for s in dict.fromkeys(["".join(words), "-".join(words)]) if 6 <= len(s) <= 40]
+    return [f"{stem}{tld}" for tld in (".co.uk", ".uk", ".com") for stem in stems]
 
 
-def looks_like(name: str, html: str) -> bool:
-    """The page must mention the firm's distinctive name, and not be a parked/for-sale page."""
+UK_SIGNAL = re.compile(r"\+44|\b0[1-37]\d{2,3}\s?\d{3}\s?\d{3,4}\b|\bunited kingdom\b|\blondon\b|"
+                       r"\bhertfordshire\b|\b[A-Z]{1,2}\d{1,2}[A-Z]?\s\d[A-Z]{2}\b", re.I)
+
+
+def _norm(text: str) -> str:
+    t = re.sub(r"[^a-z0-9 ]", " ", (text or "").lower().replace("&", " and ").replace("+", " and "))
+    return " ".join(_SUFFIX.sub(" ", t).split())
+
+
+def looks_like(name: str, html: str, uk_only: bool = False) -> bool:
+    """The page must contain the firm's WHOLE name (e.g. "bellis architects"), not be a
+    parked/for-sale page, and - for a .com - show it's a UK business."""
     if len(html) < 800 or PARKED.search(html[:20000]):
         return False
-    text = re.sub(r"\s+", " ", BeautifulSoup(html[:200000], "html.parser").get_text(" ")).lower()
-    core = [w for w in re.sub(r"[^a-z0-9 ]", " ", (name or "").lower()).split() if w not in GENERIC and len(w) >= 3
-            and not _SUFFIX.fullmatch(w)]
-    return bool(core) and all(w in text for w in core)
+    phrase = _norm(name)
+    if len(phrase.replace(" ", "")) < 6:
+        return False
+    text = BeautifulSoup(html[:200000], "html.parser").get_text(" ")
+    if phrase not in _norm(text):
+        return False
+    return not uk_only or bool(UK_SIGNAL.search(text))
+
+
+def _host(url: str) -> str:
+    return re.sub(r"^www\.", "", requests.utils.urlparse(url).netloc.lower())
 
 
 def guess_site(name: str) -> str | None:
@@ -177,14 +188,16 @@ def guess_site(name: str) -> str | None:
                 r = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True)
             except requests.RequestException:
                 continue
-            if r.ok and looks_like(name, r.text):
+            # must stay on the domain we asked for (apple.co.uk -> apple.com is not the firm)
+            if r.ok and _host(r.url) == domain and looks_like(name, r.text, uk_only=domain.endswith(".com")):
                 return r.url.rstrip("/")
             break  # domain answered but isn't theirs; try the next domain
     return None
 
 
 # template/placeholder social links that site builders ship by default
-JUNK_SOCIAL = re.compile(r"(wix|squarespace|godaddy|wordpress|weebly|jimdo)(?:com)?/?$|/sharer|/share\?|/intent/", re.I)
+JUNK_SOCIAL = re.compile(r"(wix|squarespace|godaddy|wordpress|weebly|jimdo)(?:com)?/?$|/sharer|/share\?|/intent/|"
+                         r"facebook\.com/(?:tr|2008|plugins|dialog)/?$|instagram\.com/(?:p|reel|explore)/?$", re.I)
 
 
 def clean_socials(d: dict) -> dict:
@@ -200,5 +213,7 @@ def enrich_business(name: str, email: str | None = None) -> dict:
     if site:
         found = scrape_site(site)
         found.pop("email", None) if email else None  # keep the planning-record email as primary
+        if found.get("email") and found["email"].rsplit("@", 1)[-1].lower().removeprefix("www.") != _host(site):
+            found.pop("email")  # e.g. user@domain.com from a template, or a Wix tracking address
         data.update(found)
     return clean_socials(data)
