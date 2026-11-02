@@ -1,9 +1,9 @@
 name: Weekly planning scrape
 
 on:
-  schedule:
-    - cron: "3 7 * * 1"   # Mondays 07:03 UTC (7am UK in winter, 8am in summer). If the Mac is off, the job waits and runs when it comes online (up to 24h)
-  workflow_dispatch:         # manual "Run workflow" button
+  # No cron here: GitHub's scheduler ran up to 7h late or not at all. A Claude scheduled
+  # task starts this every Monday ~07:56 UK time, watches it and reports the results.
+  workflow_dispatch:         # manual "Run workflow" button (also used by the Monday task)
     inputs:
       lookback_days:
         description: "Days of decisions to fetch (8 = weekly, 90 = backfill)"
@@ -16,6 +16,11 @@ on:
       councils:
         description: "Only these councils, comma-separated (blank = all), e.g. Barnet"
         default: ""
+
+# never run two scrapes at once (a second one waits for the first)
+concurrency:
+  group: planning-scrape
+  cancel-in-progress: false
 
 jobs:
   scrape:
