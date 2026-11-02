@@ -124,10 +124,11 @@ def site_from_email(email: str | None) -> str | None:
     for url in (f"https://www.{domain}", f"https://{domain}"):
         try:
             r = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True)
-            if r.ok and len(r.text) > 500:
-                return r.url.rstrip("/")
         except requests.RequestException:
             continue
+        # a lapsed domain that now redirects elsewhere or shows a for-sale/hosting page isn't the firm's site
+        if r.ok and len(r.text) > 500 and _host(r.url) == domain and not PARKED.search(r.text[:20000]):
+            return r.url.rstrip("/")
     return None
 
 
@@ -137,7 +138,9 @@ GENERIC = {"architects", "architect", "architecture", "architectural", "design",
            "studio", "studios", "associates", "partnership", "consulting", "consultants", "services",
            "group", "and", "the", "of", "uk", "london", "drawing", "drawings", "plans", "plan"}
 PARKED = re.compile(r"domain (?:is )?for sale|buy this domain|this domain (?:may be|is) (?:for sale|parked)|"
-                    r"parked (?:free|domain)|godaddy|sedo|hugedomains|dan\.com|future home of", re.I)
+                    r"parked (?:free|domain)|godaddy|sedo|hugedomains|dan\.com|future home of|"
+                    r"uk2\.net|123-reg|fasthosts|namecheap|hostinger|ionos|domain (?:has been )?registered (?:at|with)|"
+                    r"website coming soon|under construction|account (?:has been )?suspended", re.I)
 
 
 def domain_candidates(name: str) -> list[str]:
@@ -197,7 +200,8 @@ def guess_site(name: str) -> str | None:
 
 # template/placeholder social links that site builders ship by default
 JUNK_SOCIAL = re.compile(r"(wix|squarespace|godaddy|wordpress|weebly|jimdo)(?:com)?/?$|/sharer|/share\?|/intent/|"
-                         r"facebook\.com/(?:tr|2008|plugins|dialog)/?$|instagram\.com/(?:p|reel|explore)/?$", re.I)
+                         r"facebook\.com/(?:tr|2008|plugins|dialog|profile\.php)/?$|instagram\.com/(?:p|reel|explore)/?$|"
+                         r"\b(?:uk2|123reg|123-reg|fasthosts|namecheap|hostinger|ionos|godaddy|wix|squarespace)\b", re.I)
 
 
 def clean_socials(d: dict) -> dict:

@@ -46,3 +46,11 @@ def test_freemail_domains_are_never_websites():
     for d in ("mail.com", "gmail.com", "gmx.co.uk", "talktalk.net"):
         assert d in enrich.FREEMAIL
     assert enrich.site_from_email("roy@mail.com") is None
+
+
+def test_hosting_placeholders_rejected():
+    parked = PAGE.format(t="sheldonpeeverstudio.co.uk", b="Sheldon Peever Studio - this domain is registered with UK2.net")
+    assert not enrich.looks_like("Sheldon Peever Studio", parked)
+    d = enrich.clean_socials({"facebook": "https://www.facebook.com/UK2.net", "linkedin": "http://www.linkedin.com/company/uk2",
+                              "instagram": "https://www.facebook.com/profile.php"})
+    assert d == {}
