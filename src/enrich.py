@@ -109,7 +109,9 @@ def scrape_site(url: str) -> dict:
 
 FREEMAIL = {"gmail.com", "googlemail.com", "hotmail.com", "hotmail.co.uk", "outlook.com", "live.com",
             "live.co.uk", "yahoo.com", "yahoo.co.uk", "aol.com", "icloud.com", "me.com", "btinternet.com",
-            "sky.com", "virginmedia.com", "msn.com", "protonmail.com"}
+            "sky.com", "virginmedia.com", "msn.com", "protonmail.com", "mail.com", "gmx.com", "gmx.co.uk",
+            "ymail.com", "rocketmail.com", "talktalk.net", "tiscali.co.uk", "ntlworld.com", "blueyonder.co.uk",
+            "aol.co.uk", "proton.me", "zoho.com", "yandex.com", "plus.com", "orange.net", "fsmail.net"}
 
 
 def site_from_email(email: str | None) -> str | None:
@@ -129,6 +131,58 @@ def site_from_email(email: str | None) -> str | None:
     return None
 
 
+# Words that describe the trade rather than the firm: a firm called "Bellis Architects"
+# can live at bellisarchitects.co.uk or bellis.co.uk, but "architects.co.uk" is never it.
+GENERIC = {"architects", "architect", "architecture", "architectural", "design", "designs", "planning",
+           "studio", "studios", "associates", "partnership", "consulting", "consultants", "services",
+           "group", "and", "the", "of", "uk", "london", "drawing", "drawings", "plans", "plan"}
+PARKED = re.compile(r"domain (?:is )?for sale|buy this domain|this domain (?:may be|is) (?:for sale|parked)|"
+                    r"parked (?:free|domain)|godaddy|sedo|hugedomains|dan\.com|future home of", re.I)
+
+
+def domain_candidates(name: str) -> list[str]:
+    """Likely websites for a firm, from its name alone - e.g. 'Bellis Architects Ltd' ->
+    bellisarchitects.co.uk, bellis-architects.co.uk, bellisarchitects.com, ..."""
+    n = (name or "").lower().replace("&", " and ").replace("+", " and ")
+    n = re.sub(r"[^a-z0-9 ]", " ", n)
+    n = _SUFFIX.sub(" ", n)
+    words = [w for w in n.split() if w]
+    if not words or not any(w not in GENERIC and len(w) >= 3 for w in words):
+        return []  # nothing distinctive enough to guess from
+    stems = ["".join(words), "-".join(words)]
+    core = [w for w in words if w not in GENERIC]
+    if core and core != words:
+        stems.append("".join(core))
+    out = []
+    for stem in dict.fromkeys(stems):
+        if 3 <= len(stem) <= 40:
+            out += [f"{stem}.co.uk", f"{stem}.com", f"{stem}.uk"]
+    return out[:9]
+
+
+def looks_like(name: str, html: str) -> bool:
+    """The page must mention the firm's distinctive name, and not be a parked/for-sale page."""
+    if len(html) < 800 or PARKED.search(html[:20000]):
+        return False
+    text = re.sub(r"\s+", " ", BeautifulSoup(html[:200000], "html.parser").get_text(" ")).lower()
+    core = [w for w in re.sub(r"[^a-z0-9 ]", " ", (name or "").lower()).split() if w not in GENERIC and len(w) >= 3
+            and not _SUFFIX.fullmatch(w)]
+    return bool(core) and all(w in text for w in core)
+
+
+def guess_site(name: str) -> str | None:
+    for domain in domain_candidates(name):
+        for url in (f"https://www.{domain}", f"https://{domain}"):
+            try:
+                r = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True)
+            except requests.RequestException:
+                continue
+            if r.ok and looks_like(name, r.text):
+                return r.url.rstrip("/")
+            break  # domain answered but isn't theirs; try the next domain
+    return None
+
+
 # template/placeholder social links that site builders ship by default
 JUNK_SOCIAL = re.compile(r"(wix|squarespace|godaddy|wordpress|weebly|jimdo)(?:com)?/?$|/sharer|/share\?|/intent/", re.I)
 
@@ -142,7 +196,7 @@ def clean_socials(d: dict) -> dict:
 
 def enrich_business(name: str, email: str | None = None) -> dict:
     data = companies_house(name)
-    site = site_from_email(email) or find_website(name)
+    site = site_from_email(email) or guess_site(name) or find_website(name)
     if site:
         found = scrape_site(site)
         found.pop("email", None) if email else None  # keep the planning-record email as primary

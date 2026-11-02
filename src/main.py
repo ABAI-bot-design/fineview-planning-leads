@@ -83,6 +83,14 @@ def run():
                 time.sleep(float(c["pause_between_searches"]))  # some councils throttle back-to-back searches
             kept += process_search(s, c["name"], days, by)
     log.info("Run complete: %d new qualifying applications", kept)
+    # Straight after the scrape, retry businesses still missing a phone, email or website
+    # (new ones from this run included). Never touches homeowners.
+    try:
+        stats = enrich_existing()
+        record_run("All councils", "enrich", stats)
+    except Exception as e:  # enrichment must never fail the scrape
+        log.warning("enrichment failed: %s", e)
+        record_run("All councils", "enrich", error=str(e)[:500])
 
 
 def record_run(council, by, stats=None, error=None):
@@ -229,13 +237,25 @@ def rescore():
     log.info("Rescore: %d kept and rescored, %d excluded", changed, excluded)
 
 
+RETRY_AFTER_DAYS = 28  # don't hammer the same firm's site every week
+
+
 def enrich_existing():
-    """Backfill website/socials/phone for saved BUSINESS contacts (never homeowners)."""
-    cols = "id,name,email,phone,website,instagram,facebook,linkedin"
-    done = 0
+    """Fill phone/email/website/socials for saved BUSINESS contacts that are missing them
+    (never homeowners). Each firm is retried at most every RETRY_AFTER_DAYS."""
+    from datetime import datetime, timedelta, timezone
+    cols = "id,name,email,phone,website,instagram,facebook,linkedin,enrich_attempted_at"
+    cutoff = datetime.now(timezone.utc) - timedelta(days=RETRY_AFTER_DAYS)
+    done = tried = gained_phone = gained_email = 0
     for c in db.select("contacts", cols, is_business="eq.true"):
-        if PLACEHOLDER_NAMES.match(c["name"] or "") or (c["website"] and c["instagram"] and c["linkedin"]):
+        if PLACEHOLDER_NAMES.match(c["name"] or ""):
             continue
+        if c["phone"] and c["email"] and c["website"]:
+            continue
+        last = c.get("enrich_attempted_at")
+        if last and datetime.fromisoformat(last.replace("Z", "+00:00")) > cutoff:
+            continue
+        tried += 1
         try:
             found = enrich_business(c["name"], c["email"])
         except Exception as e:
@@ -244,12 +264,16 @@ def enrich_existing():
         if found.get("email"):
             found["email"] = clean_email(found["email"])
         updates = {k: v for k, v in found.items()
-                   if k in ("website", "instagram", "facebook", "linkedin", "phone",
+                   if k in ("website", "instagram", "facebook", "linkedin", "phone", "email",
                             "company_number", "company_status", "directors") and v and not c.get(k)}
-        if updates:
-            db.update("contacts", updates, id=c["id"])
-            done += 1
-    log.info("Enrich: updated %d business contacts", done)
+        gained_phone += bool(updates.get("phone"))
+        gained_email += bool(updates.get("email"))
+        updates["enrich_attempted_at"] = datetime.now(timezone.utc).isoformat()
+        db.update("contacts", updates, id=c["id"])
+        done += len(updates) > 1
+    stats = {"tried": tried, "updated": done, "new_phones": gained_phone, "new_emails": gained_email}
+    log.info("Enrich: %s", stats)
+    return stats
 
 
 if __name__ == "__main__":
